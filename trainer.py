@@ -297,7 +297,7 @@ class Trainer:
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
                 '''
-                self.log("train", inputs, outputs, losses)
+                #self.log("train", inputs, outputs, losses)
                 '''
                 self.val()
                 '''
@@ -730,16 +730,16 @@ class Trainer:
             instance_K_num = img0_ins_bbox_list[0].shape[0]
 
             # step2: compute image feature and crop ROI feature
-            img0_feature = self.models["encoder"](img0)[-1] # [bs, 512, 6, 20]
+            img0_feature = self.models["encoder"](img0_aug)[-1] # [bs, 512, 6, 20]
             img0_pred_feature = self.models["encoder"](img0_pred)[-1] # [bs, 512, 6, 20]
             # [bs, 512, 6, 20] -> [k*bs, 512, 6, 20] or [k*bs, 512, 3, 3]
-            '''
+            
+            # FIXME: delete
             if self.opt.predict_delta:
                 #img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(6,20))
                 img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(self.opt.height//32, self.opt.width//32))
             else:
                 img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(3,3))
-            '''
             
             # step3: compute pix_coords of img0_pred
             cam_points = self.backproject_depth[scale](
@@ -752,18 +752,17 @@ class Trainer:
                 #img1_ins_mask = img1_ins_mask_list[:, ins_id+1, :, :].unsqueeze(1).float() #[b, 1, h, w]
                 img1_ins_mask = inputs[("ins_id_seg", frame_id, scale)][:, ins_id+1, :, :].unsqueeze(1).float() # [b, 1, h, w]
                 img0_pred_ins_mask = F.grid_sample(img1_ins_mask, pix_coords) #[b, 1, h, w]
-                
-                # TODO: step4.5: compute diff between t_pred and t_gt and then eliminate relative static area
-                #roi_diff = torch.sum(torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask))
-                #print(roi_diff)
+
                 if self.opt.roi_diff_thres is not None:
                     roi_diff = torch.sum(torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask))
-                    
                     if torch.sum(img0_pred_ins_mask) >= 1:
                         roi_diff = roi_diff / (torch.sum(img0_pred_ins_mask))
                         if roi_diff < self.opt.roi_diff_thres:
                             continue
                 
+                #img0_ins_mask = inputs[("ins_id_seg", frame_id, scale)][:, ins_id+1, :, :].unsqueeze(1).float()
+                #ins_IOU = self.compute_IOU(img1_ins_mask)
+
                 # step5: crop ins feature of img0 and img0_pred
                 # [bs, 512, 6, 20] -> [k*bs, 512, 3, 3]
                 if self.opt.predict_delta:
@@ -962,8 +961,8 @@ class Trainer:
             else:
                 # No mask for this instance. Might happen due to
                 # resizing or cropping. Set bbox to zeros
-                x1, y1, x2, y2 = 0, 0, 20, 6
-            ins_warp_bbox.append(torch.Tensor([[x1, y1, x2, y2]]).to(self.device))
+                x1, y1, x2, y2 = 0, 0, 640, 192
+            ins_warp_bbox.append(torch.Tensor([[x1/32, y1/32, x2/32, y2/32]]).to(self.device))
             #ins_warp_bbox.append([[x1, y1, x2, y2]])
             #ins_warp_bbox.append(torch.Tensor([[x1, y1, x2, y2]]).to(self.device))
         

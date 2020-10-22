@@ -297,11 +297,11 @@ class Trainer:
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
                 '''
-                #self.log("train", inputs, outputs, losses)
+                self.log("train", inputs, outputs, losses)
                 '''
                 self.val()
                 '''
-
+            #input()
             self.step += 1
 
     def process_batch(self, inputs):
@@ -358,12 +358,10 @@ class Trainer:
             bg_loss = losses['loss']
             fg_loss = losses['ins_loss']
             losses['bg_loss'] = bg_loss
-            '''
+            
             if self.opt.weight_fg is not None:
                 losses['loss'] = (1-self.opt.weight_fg) * bg_loss + self.opt.weight_fg * fg_loss
-            else:
-                losses['loss'] = weight_bg * bg_loss + weight_fg * fg_loss
-            '''
+            
             return outputs, losses
         else:
             self.generate_images_pred(inputs, outputs)
@@ -687,12 +685,23 @@ class Trainer:
         ins_RoI_bbox_list_frame_id = [x.squeeze(0) for x in list(ins_RoI_bbox_frame_id.split(1, dim=0))]
         return ins_RoI_bbox_list_frame_id
 
+    def compute_IOU(self, mask1, mask2):
+        """
+        mask1: b, 1, h, w
+        """
+        print(mask1.shape, mask2.shape)
+        inter = mask1 * mask2
+        outer = 1 - (1-mask1) * (1-mask2)
+        IOU = inter.sum() / outer.sum()
+        return IOU
+
     def synthesize_layer(self, inputs, outputs):
         # some defition
         scale = 0
         inv_K = inputs[("inv_K", scale)]
         K = inputs[("K", scale)]
-        img0 = inputs["color_aug", 0, scale]
+        img0_aug = inputs["color_aug", 0, scale]
+        img0 = inputs["color", 0, scale]
         
         # compute depth
         disp = outputs[("disp", scale)]
@@ -708,11 +717,12 @@ class Trainer:
         
         for frame_id in self.opt.frame_ids[1:]: # [-1, 1]
             T_static = outputs[("cam_T_cam", 0, frame_id)] # [bs, 4, 4]
-            img1 = inputs["color_aug", frame_id, scale]
+            #img1 = inputs["color_aug", frame_id, scale]
+            img1 = inputs["color", frame_id, scale]
             img0_pred = outputs[("color", frame_id, scale)]
             # define the final image and mask
-            img0_pred_final = torch.zeros_like(img0_pred)   # final image
-            mask0_pred_final = torch.zeros_like(outputs[("cur_mask", 0, scale)]) # bs, 1, 192, 640
+            img0_pred_final = torch.zeros_like(img0_pred, requires_grad=True)   # final image
+            mask0_pred_final = torch.zeros_like(outputs[("cur_mask", 0, scale)], requires_grad=True) # bs, 1, 192, 640
 
             # step1: read ins and mask
             img0_ins_bbox_list = self.get_ins_bbox(inputs, 0, scale) # length = 1, [k=4, 4]
@@ -730,17 +740,29 @@ class Trainer:
             else:
                 img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(3,3))
             '''
+            
             # step3: compute pix_coords of img0_pred
             cam_points = self.backproject_depth[scale](
                 depth0, inv_K) # cam_points of frame 0, [12, 4, 122880]
             pix_coords = self.project_3d[scale](
                 cam_points, K, T_static)
-
+            
             for ins_id in range(instance_K_num):
                 # step4: use T_static to transform mask of each ins
                 #img1_ins_mask = img1_ins_mask_list[:, ins_id+1, :, :].unsqueeze(1).float() #[b, 1, h, w]
                 img1_ins_mask = inputs[("ins_id_seg", frame_id, scale)][:, ins_id+1, :, :].unsqueeze(1).float() # [b, 1, h, w]
                 img0_pred_ins_mask = F.grid_sample(img1_ins_mask, pix_coords) #[b, 1, h, w]
+                
+                # TODO: step4.5: compute diff between t_pred and t_gt and then eliminate relative static area
+                #roi_diff = torch.sum(torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask))
+                #print(roi_diff)
+                if self.opt.roi_diff_thres is not None:
+                    roi_diff = torch.sum(torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask))
+                    
+                    if torch.sum(img0_pred_ins_mask) >= 1:
+                        roi_diff = roi_diff / (torch.sum(img0_pred_ins_mask))
+                        if roi_diff < self.opt.roi_diff_thres:
+                            continue
                 
                 # step5: crop ins feature of img0 and img0_pred
                 # [bs, 512, 6, 20] -> [k*bs, 512, 3, 3]
@@ -796,17 +818,19 @@ class Trainer:
                 # img0_pred_final：[bs, 3, 192, 640], img0_pred_ins_mask_new: [bs, 1, 192, 640], ins_pix_coords: [1, 192, 640, 2]
                 img0_pred_final = torch.add(img0_pred_final*(1-img0_pred_ins_mask_new), img0_pred_new*img0_pred_ins_mask_new)
                 mask0_pred_final = torch.add(mask0_pred_final*(1-img0_pred_ins_mask_new), img0_pred_ins_mask_new)
-
+            
             color_ori = outputs[("color", frame_id, scale)]
             color_new = mask0_pred_final * img0_pred_final + (1-mask0_pred_final) * color_ori
 
-            #outputs[("color_ori", frame_id, scale)] = color_ori
-            #outputs[("color_diff", frame_id, scale)] = color_new - color_ori
+            outputs[("color_ori", frame_id, scale)] = color_ori
+            outputs[("color_diff", frame_id, scale)] = color_new - color_ori
             outputs[("color", frame_id, scale)] = color_new
             outputs[("f_img_syn", frame_id, scale)] = img0_pred_final
-            #outputs[("warped_mask", frame_id, scale)] = mask0_pred_final
+            outputs[("warped_mask", frame_id, scale)] = mask0_pred_final
+            # FIXME: just use the max
+            outputs[("mask", frame_id, scale)] = torch.sum(inputs[("ins_id_seg", frame_id, scale)][:, 1:, :, :], 1).unsqueeze(1).float()
             
-
+    '''
     def synthesize_layer_bk(self, inputs, outputs):
         scale = 0
         bs = self.opt.batch_size
@@ -913,6 +937,7 @@ class Trainer:
             outputs[("color_diff", frame_id, scale)] = color_new - color_ori
             outputs[("color", frame_id, scale)] = color_new
             outputs[("warped_mask", frame_id, scale)] = f_mask_syn
+    '''
     
     def extract_bbox_from_mask(self, ins_warp_mask):
         """Compute bounding boxes from masks.
@@ -944,7 +969,8 @@ class Trainer:
         
         # list of [1,4]
         return ins_warp_bbox
-        
+
+    '''    
     def extract_bbox_from_mask_qh(self, ins_warp_mask):
         """Compute bounding boxes from masks.
         mask: [height, width]. Mask pixels are either 1 or 0.
@@ -974,6 +1000,7 @@ class Trainer:
 
         # [[1, 4]*bs]
         return ins_warp_bbox 
+    '''
 
     def compute_instance_losses(self, inputs, outputs):
         """loss of dynamic region"""
@@ -1093,11 +1120,16 @@ class Trainer:
                                     "warped_mask_{}_{}/{}".format(frame_id, s, j),
                                     outputs[("warped_mask", frame_id, 0)][j].data, self.step)
 
+                                writer.add_image(
+                                    "mask_{}_{}/{}".format(frame_id, s, j),
+                                    outputs[("mask", frame_id, 0)][j].data, self.step)
+
                                 '''
                                 outputs[("color_ori", frame_id, scale)] = color_ori
                                 outputs[("color_diff", frame_id, scale)] = color_new - color_ori
                                 outputs[("color", frame_id, scale)] = color_new
-                                outputs[("mask", frame_id, scale)] = f_mask_syn
+                                outputs[("f_img_syn", frame_id, scale)] = img0_pred_final
+                                outputs[("warped_mask", frame_id, scale)] = mask0_pred_final
                                 '''
                     
                     writer.add_image(
@@ -1115,6 +1147,7 @@ class Trainer:
                     #     writer.add_image(
                     #         "automask_{}/{}".format(s, j),
                     #         outputs["identity_selection/{}".format(s)][j][None, ...], self.step)
+            input()
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
@@ -1146,7 +1179,7 @@ class Trainer:
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
-
+    
     def load_model(self):
         """Load model(s) from disk
         """
@@ -1156,18 +1189,23 @@ class Trainer:
             "Cannot find folder {}".format(self.opt.load_weights_folder)
         print("loading model from folder {}".format(self.opt.load_weights_folder))
 
-        for n in self.opt.models_to_load:
+        models_to_load = self.opt.models_to_load
+        if self.opt.instance_pose:
+            models_to_load.append("instance_pose")
+
+        for n in models_to_load:
             print("Loading {} weights...".format(n))
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
-            model_dict = self.models[n].state_dict()
-            pretrained_dict = torch.load(path)
-            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-            model_dict.update(pretrained_dict)
-            self.models[n].load_state_dict(model_dict)
-        
+            try:
+                model_dict = self.models[n].state_dict()
+                pretrained_dict = torch.load(path)
+                pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+                model_dict.update(pretrained_dict)
+                self.models[n].load_state_dict(model_dict)
+            except Exception as e:
+                print(e)
         
         # loading adam state
-        '''
         if self.opt.fix_pose:
             pass
         else:
@@ -1178,4 +1216,4 @@ class Trainer:
                 self.model_optimizer.load_state_dict(optimizer_dict)
             else:
                 print("Cannot find Adam weights so Adam is randomly initialized")
-        '''
+        

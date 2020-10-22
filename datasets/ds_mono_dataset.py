@@ -1,9 +1,3 @@
-# Copyright Niantic 2019. Patent Pending. All rights reserved.
-#
-# This software is licensed under the terms of the Monodepth2 licence
-# which allows for non-commercial use only, the full terms of which are made
-# available in the LICENSE file.
-
 from __future__ import absolute_import, division, print_function
 
 import os
@@ -24,7 +18,7 @@ def pil_loader(path):
         with Image.open(f) as img:
             return img.convert('RGB')
 
-class MonoDataset(data.Dataset):
+class DSMonoDataset(data.Dataset):
     """Superclass for monocular dataloaders
 
     Args:
@@ -48,9 +42,13 @@ class MonoDataset(data.Dataset):
                  img_ext='.jpg',
                  opt=None,
                  mode=None):
-        super(MonoDataset, self).__init__()
+        super(DSMonoDataset, self).__init__()
 
-        self.data_path = data_path
+        self.mode = mode
+        if self.mode in ["train", "val"]:
+            self.mode = "train"
+        self.data_path = os.path.join(data_path, self.mode)
+
         self.filenames = filenames
         self.height = height
         self.width = width
@@ -66,12 +64,19 @@ class MonoDataset(data.Dataset):
         self.to_tensor = transforms.ToTensor()
 
         self.opt = opt
-        self.mode = mode
+
+        if self.mode in ["train", "val"]:
+            self.mode = "train"
+            self.img_dir = "train-left-image"
+            self.depth_dir = "train-depth-map"
+        else:
+            self.img_dir = "left-image-half-size"
+            self.depth_dir = "depth-map-half-size"
 
         if self.opt.SIG or self.opt.instance_pose :
-            self.data_sem_path = os.path.join(self.opt.project_dir, "dataset", "kitti_data_sem_eigen_zhou", self.mode)
-            self.data_ins_path = os.path.join(self.opt.project_dir, "dataset", "kitti_data_ins_eigen_zhou", self.mode)
-            self.data_bbox_path = os.path.join(self.opt.project_dir, "dataset", "kitti_data_bbox_eigen_zhou", self.mode)
+            self.data_sem_path = os.path.join(self.opt.project_dir, "dataset", "ds_data_sem", self.mode)
+            self.data_ins_path = os.path.join(self.opt.project_dir, "dataset", "ds_data_ins", self.mode)
+            self.data_bbox_path = os.path.join(self.opt.project_dir, "dataset", "ds_data_bbox", self.mode)
 
         # We need to specify augmentations differently in newer versions of torchvision.
         # We first try the newer tuple version; if this fails we fall back to scalars
@@ -94,7 +99,7 @@ class MonoDataset(data.Dataset):
             self.resize[i] = transforms.Resize((self.height // s, self.width // s),
                                                interpolation=self.interp)
 
-        self.load_depth = self.check_depth()
+        self.load_depth = self.check_ds_depth()
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -186,7 +191,7 @@ class MonoDataset(data.Dataset):
                     # instance 2 mask : [2, :, :]
                     # instance 3 mask : [3, :, :]
                     # instance 4 mask : [4, :, :]
-        
+
     def get_edge(self, ins_id_seg):
         ins_edge_seg = None
         ins_id_seg_edge_gradient = np.gradient(ins_id_seg)
@@ -229,38 +234,38 @@ class MonoDataset(data.Dataset):
         do_color_aug = self.is_train and random.random() > 0.5
         do_flip = self.is_train and random.random() > 0.5
 
-        line = self.filenames[index].split()
-        folder = line[0]
+        # filenames[index]: 2018-10-11-16-03-19_1192
+        # frame_index: 1192
+        frame_index = int(self.filenames[index].split("_")[1])
+        # frame_name: "2018-10-11-16-03-19"
+        frame_name = self.filenames[index].split("_")[0]
 
-        if len(line) == 3:
-            frame_index = int(line[1])
-        else:
-            frame_index = 0
-
-        if len(line) == 3:
-            side = line[2]
-        else:
-            side = None
-
-        for i in self.frame_idxs:
-            # file_exist_flag = self.file_exist(self.data_path, folder, frame_index + i, side, self.img_ext)
-            # if file_exist_flag:
-            inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
-            # else:
-            #     inputs[("color", i, -1)] = self.get_color(folder, frame_index, side, do_flip)
+        for i in self.frame_idxs: #[0, -1, 1]
+            i_frame_name = frame_name + "_" + str(frame_index+i) + self.img_ext
+            i_frame_path = os.path.join(self.data_path, self.img_dir, i_frame_name)
+            if os.path.isfile(i_frame_path):
+                inputs[("color", i, -1)] = self.get_ds_color(i_frame_path, do_flip)
+            else:
+                print("missing: ", i_frame_path)
+                i_frame_name = frame_name + "_" + str(frame_index) + self.img_ext
+                i_frame_path = os.path.join(self.data_path, self.img_dir, i_frame_name)
+                inputs[("color", i, -1)] = self.get_ds_color(i_frame_path, do_flip)
 
         if self.opt.SIG or self.opt.instance_pose:
             ins_width = dict()
             ins_height = dict()
             for i in self.frame_idxs: # [0,1,-1]
-                # file_exist_flag = self.file_exist(self.data_ins_path, folder, frame_index + i, side, ".npy")
-                # if file_exist_flag:
-                ins_seg = self.get_sem_ins(self.data_ins_path, folder, frame_index + i, side, do_flip)
-                # else:
-                #     ins_seg = self.get_sem_ins(self.data_ins_path, folder, frame_index, side, do_flip)
+                i_frame_name = frame_name + "_" + str(frame_index+i) + ".npy"
+                i_frame_path = os.path.join(self.data_ins_path, i_frame_name)
+                if os.path.isfile(i_frame_path):
+                    ins_seg = self.get_sem_ins(i_frame_path, do_flip)
+                else:
+                    print("missing: ", i_frame_path)
+                    i_frame_name = frame_name + "_" + str(frame_index) + ".npy"
+                    i_frame_path = os.path.join(self.data_ins_path, i_frame_name)
+                    ins_seg = self.get_sem_ins(i_frame_path, do_flip)
 
                 sig_ins_id_seg = Image.fromarray(np.uint8(ins_seg[:,:,1])).convert("L")
-                #inputs[("ins_id_seg_size", i, -1)] = sig_ins_id_seg.size
                 ins_width[i] = sig_ins_id_seg.size[0]
                 ins_height[i] = sig_ins_id_seg.size[1]
 
@@ -274,32 +279,38 @@ class MonoDataset(data.Dataset):
 
             if self.opt.SIG:
                 for i in self.frame_idxs: # [0,1,-1]
-                    # file_exist_flag = self.file_exist(self.data_sem_path, folder, frame_index + i, side, ".npy")
-                    # if file_exist_flag:
-                    sem_seg = self.get_sem_ins(self.data_sem_path, folder, frame_index + i, side, do_flip)
-                    # else:
-                        # sem_seg = self.get_sem_ins(self.data_sem_path, folder, frame_index, side, do_flip)
-
+                    i_frame_name = frame_name + "_" + str(frame_index+i) + ".npy"
+                    i_frame_path = os.path.join(self.data_sem_path, i_frame_name)
+                    if os.path.isfile(i_frame_path):
+                        sem_seg = self.get_sem_ins(i_frame_path, do_flip)
+                    else:
+                        print("missing: ", i_frame_path)
+                        i_frame_name = frame_name + "_" + str(frame_index) + ".npy"
+                        i_frame_path = os.path.join(self.data_sem_path, i_frame_name)
+                        sem_seg = self.get_sem_ins(i_frame_path, do_flip)
+                    
                     sig_sem_seg = Image.fromarray(np.uint8(sem_seg[:,:,0])).convert("L")
                     sig_sem_seg = sig_sem_seg.resize((self.opt.width, self.opt.height), Image.NEAREST)
 
                     inputs[("sem_seg", i, -1)] = sig_sem_seg
 
             if self.opt.instance_pose:
-                for i in self.frame_idxs: # [0,1,-1]
-                    #ins_width, ins_height = inputs[("ins_id_seg_size", i, -1)] # around 1242, 375
-                    #print("ins_width: ", ins_width, "ins_height: ", ins_height)
+                for i in self.frame_idxs: # [0,1,-1]  
                     ratio_w = self.opt.width / ins_width[i]
                     ratio_h = self.opt.height / ins_height[i]
 
-                    # file_exist_flag = self.file_exist(self.data_bbox_path, folder, frame_index + i, side, ".npy")
-                    # if file_exist_flag:
-                    ins_RoI_bbox, ins_RoI_idx= self.get_ins_bbox(self.data_bbox_path, folder, frame_index + i, side, 
-                            ratio_w, ratio_h, self.opt.width, self.opt.height, do_flip)
-                    # else:
-                    #     ins_RoI_bbox, ins_RoI_idx = self.get_ins_bbox(self.data_bbox_path, folder, frame_index, side, 
-                    #         ratio_w, ratio_h, self.opt.width, self.opt.height, do_flip)
-
+                    i_frame_name = frame_name + "_" + str(frame_index+i) + ".txt"
+                    i_frame_path = os.path.join(self.data_bbox_path, i_frame_name)
+                    if os.path.isfile(i_frame_path):
+                        ins_RoI_bbox, ins_RoI_idx = self.get_ins_bbox(i_frame_path, ratio_w, ratio_h, 
+                            self.opt.width, self.opt.height, do_flip)
+                    else:
+                        print("missing: ", i_frame_path)
+                        i_frame_name = frame_name + "_" + str(frame_index) + ".txt"
+                        i_frame_path = os.path.join(self.data_bbox_path, i_frame_name)
+                        ins_RoI_bbox, ins_RoI_idx = self.get_ins_bbox(i_frame_path, ratio_w, ratio_h, 
+                            self.opt.width, self.opt.height, do_flip)
+                    
                     inputs[("ins_RoI_bbox", i, 0)] = torch.Tensor(ins_RoI_bbox)
                     inputs[("ins_RoI_idx", i, 0)] = ins_RoI_idx
 
@@ -337,17 +348,17 @@ class MonoDataset(data.Dataset):
                 del inputs[("ins_RoI_idx", i, 0)]
 
         if self.load_depth:
-            depth_gt = self.get_depth(folder, frame_index, side, do_flip)
+            depth_gt = self.get_ds_depth(self.filenames[index], do_flip)
             inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
         return inputs
 
-    def get_color(self, folder, frame_index, side, do_flip):
+    def get_ds_color(self, frame_index,  do_flip):
         raise NotImplementedError
 
-    def check_depth(self):
+    def check_ds_depth(self):
         raise NotImplementedError
 
-    def get_depth(self, folder, frame_index, side, do_flip):
+    def get_ds_depth(self, frame_index,  do_flip):
         raise NotImplementedError

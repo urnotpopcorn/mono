@@ -214,6 +214,9 @@ class MonodepthOptions:
           self.parser.add_argument("--fix_depth",
                                    help="if set, the parameters of depthnet will be fixed",
                                    action="store_true")
+          self.parser.add_argument("--fix_ins_pose",
+                                   help="if set, the parameters of ins_pose_net will be fixed",
+                                   action="store_true")
           self.parser.add_argument("--weight_fg",
                                    type=float,
                                    help="the weight of foreground",

@@ -22,18 +22,18 @@ class KITTIDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
         super(KITTIDataset, self).__init__(*args, **kwargs)
 
-        self.K = np.array([[0.58, 0, 0.5, 0],
-                           [0, 1.92, 0.5, 0],
-                           [0, 0, 1, 0],
-                           [0, 0, 0, 1]], dtype=np.float32)
+        self.K = np.array([[0.58, 0,    0.5, 0],
+                           [0,    1.92, 0.5, 0],
+                           [0,    0,    1,   0],
+                           [0,    0,    0,   1]], dtype=np.float32)
 
         self.full_res_shape = (1242, 375)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
 
     def check_depth(self):
         line = self.filenames[0].split()
-        scene_name = line[0]
-        frame_index = int(line[1])
+        scene_name = line[0] # 979
+        frame_index = int(line[1]) # 979
 
         velo_filename = os.path.join(
             self.data_path,
@@ -50,13 +50,6 @@ class KITTIDataset(MonoDataset):
 
         return color
 
-    def get_sem_ins_path(self, sem_ins_path, folder, frame_index, side):
-        f_str = "{:010d}{}".format(frame_index, ".npy") # '0000000268.npy'
-
-        sem_ins_path = os.path.join(
-                sem_ins_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
-        
-        return sem_ins_path
 
     def get_sem_ins(self, sem_ins_path, folder, frame_index, side, do_flip):
         sem_ins = np.load(self.get_sem_ins_path(sem_ins_path, folder, frame_index, side))
@@ -66,10 +59,15 @@ class KITTIDataset(MonoDataset):
 
         return sem_ins
 
-    def RoI_pad(self, x_1, y_1, x_2, y_2, width, height):
+    def omit_small_RoI_pad(self, x_1, y_1, x_2, y_2, width, height):
         RoI_width = x_2 - x_1
         RoI_height = y_2 - y_1
+
+        # pad the RoI with ratio 1.3
+        RoI_width_pad = RoI_width * 0.15
+        RoI_height_pad = RoI_height * 0.15
         
+        # 
         # (x1, y1) ----------------------------
         # |                |                  |
         # |                |                  |
@@ -85,67 +83,55 @@ class KITTIDataset(MonoDataset):
             x_2 = width
             y_2 = height
         else:
-            # pad the RoI with ratio 1.3
-            RoI_width_pad = RoI_width * 0.15
-            RoI_height_pad = RoI_height * 0.15
-
             x_1 = 0 if x_1 - RoI_width_pad <= 0 else x_1 - RoI_width_pad
             y_1 = 0 if y_1 - RoI_height_pad <= 0 else y_1 - RoI_height_pad
             x_2 = width if x_2 + RoI_width_pad >= width else x_2 + RoI_width_pad
             y_2 = height if y_2 + RoI_height_pad >= height else y_2 + RoI_height_pad
         
         return x_1, y_1, x_2, y_2
-
-    def mask_area(self, box_list):
-        x_1,y_1,x_2,y_2 = box_list
-                
-        return (y_2-y_1)*(x_2-x_1)
-
+    
     def get_ins_bbox(self, data_bbox_path, folder, frame_index, side, 
                         ratio_w, ratio_h, width, height, do_flip):
+
+        # method 1: extract bbox from ins data
+        # method 2: load bbox from local disk
         with warnings.catch_warnings():
             # if there is no bbox, the txt file is empty.
             warnings.simplefilter("ignore")
             ins_bbox_mat = np.loadtxt(self.get_ins_txt_path(data_bbox_path, folder, frame_index, side))
         
-        K_num = 5
+        K_num = 5 # assume the maximum k+1=4+1=5 (including the bg)
         if len(ins_bbox_mat) > 0:
             if len(ins_bbox_mat.shape) == 1:
-                # if there is only one obj, (4,) -> (1,4)
+                # if there is only one obj
                 ins_bbox_mat = np.expand_dims(ins_bbox_mat, 0)
-            
-            box_area_list = []
-            for i in range(len(ins_bbox_mat)):
-                box_area_list.append(self.mask_area(ins_bbox_mat[i]))
-        
-            sort_idx = np.argsort(box_area_list)[::-1][:K_num-1] # descending
+                # (4,) -> (1,4)
 
             RoI_bbox = []
-            for i in sort_idx:
+            if len(ins_bbox_mat) >= K_num-1: # e.g. 4 >= 4 or 5 >= 4
+                select_K = K_num-1 # select_K = 4
+            else: # 3 < 4
+                select_K = len(ins_bbox_mat)
+
+            for i in range(select_K): # only K obj instances are included, K=4
                 x_1 = int(ins_bbox_mat[i, 0] * ratio_w)
                 y_1 = int(ins_bbox_mat[i, 1] * ratio_h)
                 x_2 = int(ins_bbox_mat[i, 2] * ratio_w)
                 y_2 = int(ins_bbox_mat[i, 3] * ratio_h)
 
-                x_1, y_1, x_2, y_2 = self.RoI_pad(x_1, y_1, x_2, y_2, width, height)
-
+                x_1, y_1, x_2, y_2 = self.omit_small_RoI_pad(x_1, y_1, x_2, y_2, width, height)
                 if do_flip:
                     RoI_bbox.append([(width - x_2)/32, y_1/32, (width - x_1)/32, y_2/32])
                 else:
                     RoI_bbox.append([x_1/32, y_1/32, x_2/32, y_2/32])
 
-            if len(sort_idx) < K_num-1: 
+            if len(ins_bbox_mat) < K_num-1: 
                 x_1 = 0
                 y_1 = 0
                 x_2 = width/32
                 y_2 = height/32
-                for i in range(K_num-1-len(sort_idx)):
+                for i in range(K_num-1-len(ins_bbox_mat)):
                     RoI_bbox.append([x_1, y_1, x_2, y_2])
-
-            r_sort_idx = [i+1 for i in sort_idx]    
-            
-            return np.asarray(RoI_bbox), r_sort_idx
-
         else:
             RoI_bbox= []
             x_1 = 0
@@ -156,19 +142,15 @@ class KITTIDataset(MonoDataset):
             for i in range(K_num-1):
                 RoI_bbox.append([x_1, y_1, x_2, y_2])
 
-            # (4, 4)
-            return np.asarray(RoI_bbox), None
+        # (4, 4)
+        return np.asarray(RoI_bbox)
     
-    def file_exist(self, ins_bbox_path, folder, frame_index, side, ext):
-        f_str = "{:010d}{}".format(frame_index, ext)
-
-        ins_txt_path = os.path.join(
-                ins_bbox_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
-
-        if os.path.isfile(ins_txt_path):
-            return True
-        else:
-            return False
+        
+class KITTIRAWDataset(KITTIDataset):
+    """KITTI dataset which loads the original velodyne depth maps for ground truth
+    """
+    def __init__(self, *args, **kwargs):
+        super(KITTIRAWDataset, self).__init__(*args, **kwargs)
 
     def get_ins_txt_path(self, ins_bbox_path, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, ".txt") # '0000000268.txt'
@@ -178,14 +160,19 @@ class KITTIDataset(MonoDataset):
         
         return ins_txt_path
 
-class KITTIRAWDataset(KITTIDataset):
-    """KITTI dataset which loads the original velodyne depth maps for ground truth
-    """
-    def __init__(self, *args, **kwargs):
-        super(KITTIRAWDataset, self).__init__(*args, **kwargs)
+
+    def get_sem_ins_path(self, sem_ins_path, folder, frame_index, side):
+        f_str = "{:010d}{}".format(frame_index, ".npy") # '0000000268.npy'
+
+        sem_ins_path = os.path.join(
+                sem_ins_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+        
+        return sem_ins_path
+
 
     def get_image_path(self, folder, frame_index, side):
-        f_str = "{:010d}{}".format(frame_index, self.img_ext)
+        f_str = "{:010d}{}".format(frame_index, self.img_ext) # '0000000268.jpg'
+
         image_path = os.path.join(
             self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
         return image_path
@@ -222,6 +209,7 @@ class KITTIOdomDataset(KITTIDataset):
             "image_{}".format(self.side_map[side]),
             f_str)
         return image_path
+
 
 class KITTIDepthDataset(KITTIDataset):
     """KITTI dataset which uses the updated ground truth depth maps

@@ -241,6 +241,13 @@ class MonodepthOptions:
           self.parser.add_argument("--SIG_ignore_fg_loss",
                                    help="if set, fg loss will be ignore",
                                    action="store_true")
+          self.parser.add_argument("--use_insid_match",
+                                   help="if set, use ins_id to match ins feature. Otherwise, use warped mask instead.",
+                                   action="store_true")                         
+          self.parser.add_argument("--iou_thres",
+                                   type=float,
+                                   help="the IOU threshold of ins-area matching",
+                                   default=None)
 
      def parse(self):
           self.options = self.parser.parse_args()

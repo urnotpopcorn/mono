@@ -10,7 +10,7 @@ import numpy as np
 import time
 
 import torch
-import torchvision 
+import torchvision
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -49,7 +49,7 @@ class Trainer:
 
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
-        
+
         self.models["encoder"] = networks.ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained")
         self.models["encoder"].to(self.device)
@@ -85,7 +85,7 @@ class Trainer:
                     pose_encoder_para = self.models["pose_encoder"].parameters()
                     for p in pose_encoder_para:
                         p.requires_grad = False
-                    
+
                     #self.parameters_to_train += list(pose_encoder_para)
 
                 # self.parameters_to_train += list(self.models["pose_encoder"].parameters())
@@ -111,7 +111,7 @@ class Trainer:
                 pose_decoder_para = self.models["pose"].parameters()
                 for p in pose_decoder_para:
                     p.requires_grad = False
-                
+
                 #self.parameters_to_train += list(pose_decoder_para)
 
             # self.parameters_to_train += list(self.models["pose"].parameters())
@@ -127,7 +127,7 @@ class Trainer:
                 elif isinstance(m, torch.nn.BatchNorm2d):
                     torch.nn.init.constant_(m.weight, 1)
                     torch.nn.init.constant_(m.bias, 0)
-            
+
             if self.opt.predict_delta:
                 self.models["instance_pose"] = networks.InsPoseDecoder(
                     num_RoI_cat_features=1024,
@@ -161,7 +161,7 @@ class Trainer:
         # 1e-4 -> 1e-5 (15 epoch) -> 1e-6 (30 epoch), step=15
         self.model_optimizer = optim.Adam(
             filter(lambda p: p.requires_grad, self.parameters_to_train), self.opt.learning_rate)
-        
+
         # self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
@@ -291,16 +291,16 @@ class Trainer:
 
             if early_phase or late_phase:
                 if self.opt.instance_pose:
-                    self.log_time(batch_idx, duration, losses["loss"].cpu().data, 
-                        losses["ins_loss"].cpu().data, losses["bg_loss"].cpu().data)    
+                    self.log_time(batch_idx, duration, losses["loss"].cpu().data,
+                        losses["ins_loss"].cpu().data, losses["bg_loss"].cpu().data)
                 else:
                     self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                
-                
+
                 # print T_dynamic
-                for i, frame_id in enumerate(self.opt.frame_ids[1:]):
-                    for ins_id in range(4):
-                        print(outputs[("T_dynamic", frame_id, ins_id)])
+                # for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+                #     for ins_id in range(4):
+                #         print(outputs[("T_dynamic", frame_id, ins_id)])
+                print(outputs[("T_dynamic", 1, 0)][0])
 
                 '''
                 if "depth_gt" in inputs:
@@ -338,10 +338,10 @@ class Trainer:
             #     features = self.models["encoder"](torch.cat(depth_input, 0))
             # else:
 
-            
+
             if True:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
-            
+
             outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
@@ -355,9 +355,9 @@ class Trainer:
             self.synthesize_layer(inputs, outputs)
 
             losses = self.compute_losses(inputs, outputs)
-            
+
             weight_fg, weight_bg, ins_losses = self.compute_instance_losses(inputs, outputs)
-            
+
             if ins_losses['ins_loss'].detach().cpu().numpy() == np.nan:
                 print('nan')
                 input()
@@ -367,10 +367,10 @@ class Trainer:
             bg_loss = losses['loss']
             fg_loss = losses['ins_loss']
             losses['bg_loss'] = bg_loss
-            
+
             if self.opt.weight_fg is not None:
                 losses['loss'] = (1-self.opt.weight_fg) * bg_loss + self.opt.weight_fg * fg_loss
-            
+
             return outputs, losses
         else:
             self.generate_images_pred(inputs, outputs)
@@ -417,7 +417,7 @@ class Trainer:
                     if self.opt.disable_pose_invert:
                         outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
                             axisangle[:, 0], translation[:, 0], invert=False)
-                    else:                        
+                    else:
                         # Invert the matrix if the frame id is negative
                         outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
                             axisangle[:, 0], translation[:, 0], invert=(f_i < 0))
@@ -529,7 +529,7 @@ class Trainer:
                 #         outputs[("depth", frame_id, scale)],
                 #         pix_coords,
                 #         padding_mode="border")
-                    
+
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
         """
@@ -576,7 +576,7 @@ class Trainer:
                 #     diff_depth = (torch.abs(computed_depth - projected_depth) / (computed_depth + projected_depth)).clamp(0, 1)
                 #     geometry_consistency_loss = diff_depth.mean(1, True)
                 #     geometry_loss += geometry_consistency_loss.mean()*0.15
-                
+
                 reprojection_losses.append(self.compute_reprojection_loss(pred, target))
 
             reprojection_losses = torch.cat(reprojection_losses, 1)
@@ -638,7 +638,7 @@ class Trainer:
                     idxs > identity_reprojection_loss.shape[1] - 1).float()
 
             loss += to_optimise.mean()
-            
+
             # --------------------------------------------------------------------
 
             # if self.opt.geometric_loss:
@@ -650,7 +650,7 @@ class Trainer:
                 else:
                     smooth_loss = get_smooth_loss(norm_disp, color)
                 loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
-            
+
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
@@ -698,9 +698,9 @@ class Trainer:
         """
         mask1: b, 1, h, w
         """
-        inter = mask1 * mask2 # b, 
-        outer = 1 - (1-mask1) * (1-mask2) # b, 
-        IOU = inter.sum([2, 3]) * 1.0 / (outer.sum([2, 3])+1e-3) # b, 
+        inter = mask1 * mask2 # b,
+        outer = 1 - (1-mask1) * (1-mask2) # b,
+        IOU = inter.sum([2, 3]) * 1.0 / (outer.sum([2, 3])+1e-3) # b,
         return IOU
 
     def synthesize_layer(self, inputs, outputs):
@@ -710,7 +710,7 @@ class Trainer:
         K = inputs[("K", scale)]
         img0_aug = inputs["color_aug", 0, scale]
         img0 = inputs["color", 0, scale]
-        
+
         # compute depth
         disp = outputs[("disp", scale)]
         disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
@@ -722,7 +722,7 @@ class Trainer:
 
         # compute dynamic area of tgt frame
         outputs[("f_img_syn", 0, scale)] = inputs["color", 0, scale] * tgt_dynamic_layer
-        
+
         for frame_id in self.opt.frame_ids[1:]: # [-1, 1]
             T_static = outputs[("cam_T_cam", 0, frame_id)] # [bs, 4, 4]
             #img1 = inputs["color_aug", frame_id, scale]
@@ -741,48 +741,32 @@ class Trainer:
             img0_feature = self.models["encoder"](img0_aug)[-1] # [bs, 512, 6, 20]
             img0_pred_feature = self.models["encoder"](img0_pred)[-1] # [bs, 512, 6, 20]
             # [bs, 512, 6, 20] -> [k*bs, 512, 6, 20] or [k*bs, 512, 3, 3]
-            
+
             # FIXME: could delete this part
             if self.opt.predict_delta:
                 #img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(6,20))
                 img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(self.opt.height//32, self.opt.width//32))
             else:
                 img0_ins_feature_list = torchvision.ops.roi_align(img0_feature, img0_ins_bbox_list, output_size=(3,3))
-            
+
             # step3: compute pix_coords of img0_pred
             cam_points = self.backproject_depth[scale](
                 depth0, inv_K) # cam_points of frame 0, [12, 4, 122880]
             pix_coords = self.project_3d[scale](
                 cam_points, K, T_static)
-            
+
             for ins_id in range(instance_K_num):
                 # step4: use T_static to transform mask of each ins
                 #img1_ins_mask = img1_ins_mask_list[:, ins_id+1, :, :].unsqueeze(1).float() #[b, 1, h, w]
                 img1_ins_mask = inputs[("ins_id_seg", frame_id, scale)][:, ins_id+1, :, :].unsqueeze(1).float() # [b, 1, h, w]
                 img0_pred_ins_mask = F.grid_sample(img1_ins_mask, pix_coords) #[b, 1, h, w]
-                
-                '''
-                # TODO: step4.5: compute diff between t_pred and t_gt and then eliminate relative static area
-                roi_abs = torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask)
-                # roi_abs: bs, 3, 192, 640
-                roi_sum = torch.sum(roi_abs, dim=[1, 2, 3]) # bs,
-                mask_sum = torch.sum(roi_abs, dim=[1, 2, 3]) # bs,
-                roi_diff = roi_sum / mask_sum # bs,
-
-                if self.opt.roi_diff_thres is not None:
-                    roi_diff = torch.sum(torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask))
-                    if torch.sum(img0_pred_ins_mask) >= 1:
-                        roi_diff = roi_diff / (torch.sum(img0_pred_ins_mask))
-                        if roi_diff < self.opt.roi_diff_thres:
-                            continue
-                '''
 
                 # step5: crop ins feature of img0 and img0_pred
                 # [bs, 512, 6, 20] -> [k*bs, 512, 3, 3]
                 if self.opt.predict_delta:
                     img0_pred_ins_bbox = self.extract_bbox_from_mask(img0_pred_ins_mask)
                     img0_pred_ins_feature = torchvision.ops.roi_align(img0_pred_feature, img0_pred_ins_bbox, output_size=(self.opt.height//32, self.opt.width//32))
-                    
+
                     if self.opt.use_insid_match:
                         img0_ins_feature = torch.cat([img0_ins_feature_list[i*instance_K_num+ins_id, :, :, :].unsqueeze(0) for i in range(self.opt.batch_size)])
                     else:
@@ -791,13 +775,13 @@ class Trainer:
                 else:
                     img0_pred_ins_bbox = self.extract_bbox_from_mask(img0_pred_ins_mask)
                     img0_pred_ins_feature = torchvision.ops.roi_align(img0_pred_feature, img0_pred_ins_bbox, output_size=(3,3)) # [b, 512, 3, 3]
-                    
+
                     if self.opt.use_insid_match:
                         img0_ins_feature = torch.cat([img0_ins_feature_list[i*instance_K_num+ins_id, :, :, :].unsqueeze(0) for i in range(self.opt.batch_size)])
                     else:
                         # use warped bbox
                         img0_ins_feature = torchvision.ops.roi_align(img0_feature, img0_pred_ins_bbox, output_size=(3,3))
-                
+
                 # step6: input ins_pose_net and predict ins_pose
                 if self.opt.disable_pose_invert:
                     ins_pose_inputs = [img0_ins_feature, img0_pred_ins_feature]
@@ -806,18 +790,18 @@ class Trainer:
                         ins_pose_inputs = [img0_pred_ins_feature, img0_ins_feature]
                     else:
                         ins_pose_inputs = [img0_ins_feature, img0_pred_ins_feature]
-                
+
                 ins_pose_inputs = torch.cat(ins_pose_inputs, 1)
                 if self.opt.predict_delta:
                     ins_axisangle, ins_translation, delta_x_inv, delta_y_inv, delta_z_inv = self.models["instance_pose"](ins_pose_inputs)
                 else:
                     ins_axisangle, ins_translation = self.models["instance_pose"](ins_pose_inputs)
-                
+
                 if self.opt.disable_pose_invert:
                     ins_cam_T_cam = transformation_from_parameters(ins_axisangle[:, 0], ins_translation[:, 0], invert=False)
                 else:
-                    ins_cam_T_cam = transformation_from_parameters(ins_axisangle[:, 0], ins_translation[:, 0], invert=(frame_id < 0)) 
-                
+                    ins_cam_T_cam = transformation_from_parameters(ins_axisangle[:, 0], ins_translation[:, 0], invert=(frame_id < 0))
+
                 # ins_cam_T_cam: b, 4, 4
                 #ins_cam_T_cam = list(torch.chunk(ins_cam_T_cam, self.opt.batch_size, dim=0)) # bs x [1, 4, 4]
                 #T_dynamic = torch.cat([x for x in ins_cam_T_cam], 0) # [bs, 4, 4]
@@ -828,21 +812,38 @@ class Trainer:
                 if self.opt.predict_delta:
                     ins_pix_coords = self.project_3d[scale](
                         cam_points, K, T_total, delta_x_inv, delta_y_inv, delta_z_inv, self.opt.min_depth, self.opt.max_depth)
-                else:    
+                else:
                     ins_pix_coords = self.project_3d[scale](cam_points, K, T_total)
 
                 #step8: predict frame 0 from frame 1 based on T_dynamic and T_static
                 img0_pred_new = F.grid_sample(img1, ins_pix_coords)
                 img0_pred_ins_mask_new = F.grid_sample(img1_ins_mask, ins_pix_coords) # [bs, 1, 192, 640]
-                
-                #step8.5: filter invalid points
+
+                #step8.5: use IOU value to filter invalid points
                 if self.opt.iou_thres is not None:
                     img0_ins_mask = inputs[("ins_id_seg", 0, scale)][:, ins_id+1, :, :].unsqueeze(1).float()
                     ins_IOU = self.compute_IOU(img0_ins_mask, img1_ins_mask) # [b, 1]
-                    IOU_mask = ins_IOU < self.opt.iou_thres # [b, 1]
+                    IOU_mask = ins_IOU > self.opt.iou_thres # [b, 1]
+
                     img0_pred_ins_mask_new = img0_pred_ins_mask_new.view(self.opt.batch_size, -1) # [b, 1x192x640]
                     img0_pred_ins_mask_new = img0_pred_ins_mask_new * IOU_mask.float() # [b, 1x192x640]
                     img0_pred_ins_mask_new = img0_pred_ins_mask_new.view(self.opt.batch_size, 1, self.opt.height, self.opt.width)
+
+                #step8.6: use diff between t_pred and t_gt to eliminate relative static area
+                if self.opt.roi_diff_thres is not None:
+                    roi_abs = torch.abs(outputs[("color", frame_id, scale)] * img0_pred_ins_mask - inputs["color", 0, scale] * img0_pred_ins_mask)
+                    # roi_abs: bs, 3, 192, 640
+                    roi_sum = torch.sum(roi_abs, dim=[1, 2, 3]) # bs,
+                    mask_sum = torch.sum(img0_pred_ins_mask, dim=[1, 2, 3]) # bs,
+                    roi_diff = roi_sum * 1.0 / (mask_sum+1e-3) # bs,
+
+                    roi_diff = roi_diff.unsqueeze(1) # [bs, 1]
+                    roi_mask = roi_diff > self.opt.roi_diff_thres # [bs, 1]
+
+                    img0_pred_ins_mask_new = img0_pred_ins_mask_new.view(self.opt.batch_size, -1) # [b, 1x192x640]
+                    img0_pred_ins_mask_new = img0_pred_ins_mask_new * roi_mask.float() # [b, 1x192x640]
+                    img0_pred_ins_mask_new = img0_pred_ins_mask_new.view(self.opt.batch_size, 1, self.opt.height, self.opt.width)
+
 
                 #step9: predict image
                 # img0_pred_final：[bs, 3, 192, 640], img0_pred_ins_mask_new: [bs, 1, 192, 640], ins_pix_coords: [1, 192, 640, 2]
@@ -851,7 +852,7 @@ class Trainer:
 
                 # FIXME: save for vis
                 outputs[("T_dynamic", frame_id, ins_id)] = T_dynamic
-            
+
             color_ori = outputs[("color", frame_id, scale)]
             color_new = mask0_pred_final * img0_pred_final + (1-mask0_pred_final) * color_ori
 
@@ -864,18 +865,18 @@ class Trainer:
             # outputs[("warped_mask", frame_id, scale)] = mask0_pred_final
             # # FIXME: just use the max
             # outputs[("mask", frame_id, scale)] = torch.sum(inputs[("ins_id_seg", frame_id, scale)][:, 1:, :, :], 1).unsqueeze(1).float()
-            
+
     '''
     def synthesize_layer_bk(self, inputs, outputs):
         scale = 0
         bs = self.opt.batch_size
-        
+
         # compute cam_points of tgt frame
         disp = outputs[("disp", scale)]
         disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
         _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) # min_depth = 0.1, max_depth = 100
         cam_points = self.backproject_depth[scale](depth, inputs[("inv_K", scale)]) # tgt
-        
+
         # compute mask of tgt frame, [bs, 1, 192, 640], exclude bg
         tgt_dynamic_layer = torch.sum(inputs[("ins_id_seg", 0, scale)][:, 1:, :, :], 1).unsqueeze(1).float()
         # compute dynamic area of tgt frame
@@ -884,14 +885,14 @@ class Trainer:
 
         if True:
             f_feats_0 = self.models["encoder"](inputs["color_aug", 0, scale])[-1] # [bs, 512, 6, 20]
-        
+
         for frame_id in self.opt.frame_ids[1:]: # [-1, 1]
-            instance_K_num = inputs[("ins_id_seg", frame_id, scale)].shape[1] - 1 
+            instance_K_num = inputs[("ins_id_seg", frame_id, scale)].shape[1] - 1
 
             # compute camera pose of static area
             T_static = outputs[("cam_T_cam", 0, frame_id)] # [bs, 4, 4]
 
-            # get image of frame_id 
+            # get image of frame_id
             total_img_frame_id = inputs[("color", frame_id, scale)]
             # get mask of frame_id, in tgt_dynamic_layer: 0 stands for bg, 1 stands for object instance, [bs, 1, 192, 640]
             total_mask_frame_id = torch.sum(inputs[("ins_id_seg", frame_id, scale)][:, 1:, :, :], 1).unsqueeze(1).float()
@@ -904,7 +905,7 @@ class Trainer:
             ins_RoI_bbox_list_frame_id = [x.squeeze(0) for x in list(ins_RoI_bbox_frame_id.split(1, dim=0))]
 
             f_feats_frame_id = self.models["encoder"](inputs["color_aug", frame_id, scale])[-1] # [bs, 512, 6, 20]
-            
+
             # [bs, 512, 6, 20] -> [k*bs, 512, 3, 3]
             if self.opt.predict_delta:
                 #cur_RoI_feats = torchvision.ops.roi_align(f_feats_frame_id, ins_RoI_bbox_list_frame_id, output_size=(6,20))
@@ -921,13 +922,13 @@ class Trainer:
 
                 # [b, 512, 3, 3]
                 ins_cur_RoI_feats = torch.cat([cur_RoI_feats[i*instance_K_num+ins_id, :, :, :].unsqueeze(0) for i in range(bs)])
-                
+
                 if self.opt.predict_delta:
                     #ins_0_RoI_feats = torchvision.ops.roi_align(f_feats_0, ins_warp_bbox, output_size=(6,20))
                     ins_0_RoI_feats = torchvision.ops.roi_align(f_feats_0, ins_warp_bbox, output_size=(self.opt.height//32, self.opt.width//32))
                 else:
                     ins_0_RoI_feats = torchvision.ops.roi_align(f_feats_0, ins_warp_bbox, output_size=(3,3))
-                
+
                 if self.opt.disable_pose_invert:
                     ins_pose_inputs = [ins_0_RoI_feats, ins_cur_RoI_feats] # 0, 1
                 else:
@@ -935,26 +936,26 @@ class Trainer:
                         ins_pose_inputs = [ins_cur_RoI_feats, ins_0_RoI_feats] # -1, 0
                     else:
                         ins_pose_inputs = [ins_0_RoI_feats, ins_cur_RoI_feats] # 0, 1
-                    
+
                 ins_pose_inputs = torch.cat(ins_pose_inputs, 1) # [b, 1024, 3, 3]
-                
+
                 if self.opt.predict_delta:
                     axisangle, translation, delta_x_inv, delta_y_inv, delta_z_inv = self.models["instance_pose"](ins_pose_inputs)
                 else:
                     axisangle, translation = self.models["instance_pose"](ins_pose_inputs)
-                
+
                 # [bs, 4, 4]
                 if self.opt.disable_pose_invert:
-                    T_dynamic = transformation_from_parameters(axisangle[:, 0], translation[:, 0], invert=False) 
+                    T_dynamic = transformation_from_parameters(axisangle[:, 0], translation[:, 0], invert=False)
                 else:
-                    T_dynamic = transformation_from_parameters(axisangle[:, 0], translation[:, 0], invert=(frame_id < 0)) 
-                    
+                    T_dynamic = transformation_from_parameters(axisangle[:, 0], translation[:, 0], invert=(frame_id < 0))
+
                 T_total = torch.matmul(T_dynamic, T_static) # [bs, 4, 4]
-                
+
                 if self.opt.predict_delta:
                     T_pix_coords = self.project_3d[scale](
                             cam_points, inputs[("K", scale)], T_total, delta_x_inv, delta_y_inv, delta_z_inv, self.opt.min_depth, self.opt.max_depth)
-                else:    
+                else:
                     T_pix_coords = self.project_3d[scale](cam_points, inputs[("K", scale)], T_total)
 
                 ins_warp_img = F.grid_sample(total_img_frame_id, T_pix_coords)
@@ -973,7 +974,7 @@ class Trainer:
             outputs[("color", frame_id, scale)] = color_new
             outputs[("warped_mask", frame_id, scale)] = f_mask_syn
     '''
-    
+
     def extract_bbox_from_mask(self, ins_warp_mask):
         """Compute bounding boxes from masks.
         mask: [height, width, num_instances]. Mask pixels are either 1 or 0.
@@ -994,18 +995,26 @@ class Trainer:
                 # x2 and y2 should not be part of the box. Increment by 1.
                 x2 += 1
                 y2 += 1
+
+                if self.opt.ext_recept_field:
+                    x1 = x1 - 20 if x1 >= 20 else 0
+                    y1 = y1 - 20 if y1 >= 20 else 0
+                    x2 = x2 + 20 if x2 <= (self.opt.width - 20) else (self.opt.width)
+                    y2 = y2 + 20 if y2 <= (self.opt.height - 20) else (self.opt.height)
+
             else:
                 # No mask for this instance. Might happen due to
                 # resizing or cropping. Set bbox to zeros
                 x1, y1, x2, y2 = 0, 0, 640, 192
-            ins_warp_bbox.append(torch.Tensor([[x1/32, y1/32, x2/32, y2/32]]).to(self.device))
+
+            ins_warp_bbox.append(torch.Tensor([[np.float(x1)/32.0, np.float(y1)/32.0, np.float(x2)/32.0, np.float(y2)/32.0]]).to(self.device))
             #ins_warp_bbox.append([[x1, y1, x2, y2]])
             #ins_warp_bbox.append(torch.Tensor([[x1, y1, x2, y2]]).to(self.device))
-        
+
         # list of [1,4]
         return ins_warp_bbox
 
-    '''    
+    '''
     def extract_bbox_from_mask_qh(self, ins_warp_mask):
         """Compute bounding boxes from masks.
         mask: [height, width]. Mask pixels are either 1 or 0.
@@ -1030,11 +1039,11 @@ class Trainer:
             else:
                 # No mask for this instance
                 x1, y1, x2, y2 = 0, 0, 20, 6
-            
+
             ins_warp_bbox.append(torch.Tensor([[x1, y1, x2, y2]]).to(self.device))
 
         # [[1, 4]*bs]
-        return ins_warp_bbox 
+        return ins_warp_bbox
     '''
 
     def compute_instance_losses(self, inputs, outputs):
@@ -1055,7 +1064,7 @@ class Trainer:
             disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
-            
+
             if self.opt.second_order_disp:
                 smooth_loss = get_sec_smooth_loss(norm_disp, color)
             else:
@@ -1078,7 +1087,7 @@ class Trainer:
 
             #reproj_loss = to_optimise.mean()
             reproj_loss = to_optimise.sum() / total_mask.sum()
-            
+
             losses["ins_loss/{}_reproj".format(scale)] = reproj_loss
             losses["ins_loss_{}".format(scale)] = reproj_loss + smooth_loss
 
@@ -1087,8 +1096,8 @@ class Trainer:
 
             weight_fg = total_mask.sum() / total_mask.nelement()
             weight_bg = 1 - weight_fg
-        
-        return weight_fg, weight_bg, losses        
+
+        return weight_fg, weight_bg, losses
 
     # def log_time(self, batch_idx, duration, loss):
     def log_time(self, batch_idx, duration, loss, ins_loss=None, bg_loss=None):
@@ -1102,13 +1111,13 @@ class Trainer:
         if ins_loss is not None:
             print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
                 " | loss: {:.5f}| ins_loss: {:.5f} | bg_loss: {:.5f} | time elapsed: {} | time left: {}"
-            
+
             print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss, ins_loss, bg_loss,
                                     sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
         else:
             print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
                 " | loss: {:.5f} | time elapsed: {} | time left: {}"
-            
+
             print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
                                     sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
@@ -1118,7 +1127,7 @@ class Trainer:
         writer = self.writers[mode]
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
-        
+
         if add_image == True:
             for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
                 # for s in self.opt.scales:
@@ -1142,11 +1151,11 @@ class Trainer:
                                 writer.add_image(
                                     "color_pred_ori_{}_{}/{}".format(frame_id, s, j),
                                     outputs[("color_ori", frame_id, s)][j].data, self.step)
-                                
+
                                 writer.add_image(
                                     "outputs_f_img_syn_{}_{}/{}".format(frame_id, s, j),
                                     outputs[("f_img_syn", frame_id, 0)][j].data, self.step)
-                                
+
                                 writer.add_image(
                                     "color_diff_{}_{}/{}".format(frame_id, s, j),
                                     outputs[("color_diff", frame_id, 0)][j].data, self.step)
@@ -1166,7 +1175,7 @@ class Trainer:
                                 outputs[("f_img_syn", frame_id, scale)] = img0_pred_final
                                 outputs[("warped_mask", frame_id, scale)] = mask0_pred_final
                                 '''
-                    
+
                     writer.add_image(
                         "disp_{}/{}".format(s, j),
                         normalize_image(outputs[("disp", s)][j]), self.step)
@@ -1214,7 +1223,7 @@ class Trainer:
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
-    
+
     def load_model(self):
         """Load model(s) from disk
         """
@@ -1239,7 +1248,7 @@ class Trainer:
                 self.models[n].load_state_dict(model_dict)
             except Exception as e:
                 print(e)
-        
+
         # loading adam state
         if self.opt.fix_pose:
             pass
@@ -1251,4 +1260,3 @@ class Trainer:
                 self.model_optimizer.load_state_dict(optimizer_dict)
             else:
                 print("Cannot find Adam weights so Adam is randomly initialized")
-        

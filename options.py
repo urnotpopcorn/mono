@@ -243,13 +243,16 @@ class MonodepthOptions:
                                    action="store_true")
           self.parser.add_argument("--use_insid_match",
                                    help="if set, use ins_id to match ins feature. Otherwise, use warped mask instead.",
-                                   action="store_true")                         
+                                   action="store_true")
           self.parser.add_argument("--iou_thres",
                                    type=float,
                                    help="the IOU threshold of ins-area matching",
                                    default=None)
+          self.parser.add_argument("--ext_recept_field",
+                                   help="if set, will extend receptive field of instance.",
+                                   action="store_true")
+
 
      def parse(self):
           self.options = self.parser.parse_args()
           return self.options
-                                   
